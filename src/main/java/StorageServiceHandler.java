@@ -3,7 +3,6 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.database.*;
 import org.apache.log4j.Logger;
-import org.apache.thrift.TException;
 import org.apache.thrift.async.AsyncMethodCallback;
 import thrift.*;
 
@@ -51,13 +50,13 @@ public class StorageServiceHandler implements Storage.AsyncIface{
 
 
     @Override
-    public void getBookList(AsyncMethodCallback<Callback> resultHandler) throws TException {
+    public void getBookList(AsyncMethodCallback<Callback> resultHandler) {
         logger.info("Called getBookList()");
         ref.addChildEventListener(new UpdateBookListListener(resultHandler));
     }
 
     @Override
-    public void getBookChapters(String bookUid, AsyncMethodCallback<Callback> resultHandler) throws TException {
+    public void getBookChapters(String bookUid, AsyncMethodCallback<Callback> resultHandler) {
         logger.info("Called getBookChapters(" + bookUid + ")");
         DatabaseReference currentBookChaptersRef = ref.child(bookUid).child("chapters");
         currentBookChaptersRef.removeEventListener(updateChapterListListener);
@@ -66,7 +65,7 @@ public class StorageServiceHandler implements Storage.AsyncIface{
     }
 
     @Override
-    public void renameBook(CustomPair newValue, AsyncMethodCallback<Void> resultHandler) throws TException {
+    public void renameBook(CustomPair newValue, AsyncMethodCallback<Void> resultHandler) {
         String key = newValue.getKey();
         String newName = newValue.getValue();
         ref.child(key)
@@ -75,7 +74,7 @@ public class StorageServiceHandler implements Storage.AsyncIface{
     }
 
     @Override
-    public void renameBookChapter(String bookUid, CustomPair newValue, AsyncMethodCallback<Void> resultHandler) throws TException {
+    public void renameBookChapter(String bookUid, CustomPair newValue, AsyncMethodCallback<Void> resultHandler) {
         String key = newValue.getKey();
         String newName = newValue.getValue();
         ref.child(bookUid)
@@ -86,7 +85,7 @@ public class StorageServiceHandler implements Storage.AsyncIface{
     }
 
     @Override
-    public void getChapter(String bookUid, String chapterUid, AsyncMethodCallback<Callback> resultHandler) throws TException {
+    public void getChapter(String bookUid, String chapterUid, AsyncMethodCallback<Callback> resultHandler) {
         DatabaseReference chaptersRef =  ref.child(bookUid)
                 .child("chapters")
                 .child(chapterUid);
@@ -96,7 +95,7 @@ public class StorageServiceHandler implements Storage.AsyncIface{
     }
 
     @Override
-    public void updateChapter(String bookUid, String chapterUid, Chapter chapter, AsyncMethodCallback<Void> resultHandler) throws TException {
+    public void updateChapter(String bookUid, String chapterUid, Chapter chapter, AsyncMethodCallback<Void> resultHandler) {
         ref.child(bookUid)
                 .child("chapters")
                 .child(chapterUid)
@@ -104,13 +103,13 @@ public class StorageServiceHandler implements Storage.AsyncIface{
     }
 
     @Override
-    public void removeBook(String bookUid, AsyncMethodCallback<Void> resultHandler) throws TException {
+    public void removeBook(String bookUid, AsyncMethodCallback<Void> resultHandler) {
         ref.child(bookUid)
                 .removeValueAsync();
     }
 
     @Override
-    public void removeChapter(String bookUid, String chapterUid, AsyncMethodCallback<Void> resultHandler) throws TException {
+    public void removeChapter(String bookUid, String chapterUid, AsyncMethodCallback<Void> resultHandler) {
         ref.child(bookUid)
                 .child("chapters")
                 .child(chapterUid)
@@ -118,14 +117,14 @@ public class StorageServiceHandler implements Storage.AsyncIface{
     }
 
     @Override
-    public void addBook(String bookName, AsyncMethodCallback<Void> resultHandler) throws TException {
+    public void addBook(String bookName, AsyncMethodCallback<Void> resultHandler) {
         ref.push()
                 .child("name")
                 .setValueAsync(bookName);
     }
 
     @Override
-    public void addChapter(String bookUid, String chapterName, AsyncMethodCallback<Void> resultHandler) throws TException {
+    public void addChapter(String bookUid, String chapterName, AsyncMethodCallback<Void> resultHandler) {
         ref.child(bookUid)
                 .child("chapters")
                 .push()
