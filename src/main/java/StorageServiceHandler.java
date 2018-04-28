@@ -3,11 +3,15 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.database.*;
 import org.apache.log4j.Logger;
+import org.apache.thrift.TException;
 import org.apache.thrift.async.AsyncMethodCallback;
 import thrift.*;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class StorageServiceHandler implements Storage.AsyncIface{
 
@@ -19,12 +23,26 @@ public class StorageServiceHandler implements Storage.AsyncIface{
     private UpdateChapterListListener updateChapterListListener;
     private UpdateChapterListener updateChapterListener;
 
+    private ArrayList<Callback> unsentBookList;
+    private AtomicBoolean bookListSent = new AtomicBoolean(false);
+    private static final Object bookListLock = new Object();
+
+    private ArrayList<Callback> unsentChapterList;
+    private AtomicBoolean chapterListSent = new AtomicBoolean(false);
+    private static final Object chapterListLock = new Object();
+
+    private ArrayList<Callback> unsentChapterInfoList;
+    private AtomicBoolean chapterInfoListSent = new AtomicBoolean(false);
+    private static final Object chapterInfoListLock = new Object();
+
+
     StorageServiceHandler() {
         try {
             initializeApp();
             ref = FirebaseDatabase.getInstance()
                     .getReference().child("books");
             createEventListeners();
+            createCash();
         } catch (IOException e) {
             logger.error("Error in app initialization: " + e.getLocalizedMessage());
         }
@@ -48,20 +66,45 @@ public class StorageServiceHandler implements Storage.AsyncIface{
         updateChapterListener = new UpdateChapterListener(null);
     }
 
+    private void createCash() {
+        unsentBookList = new ArrayList<>();
+        unsentChapterList = new ArrayList<>();
+        unsentChapterInfoList = new ArrayList<>();
+    }
+
 
     @Override
     public void getBookList(AsyncMethodCallback<Callback> resultHandler) {
         logger.info("Called getBookList()");
+        this.clearBookCash();
         ref.addChildEventListener(new UpdateBookListListener(resultHandler));
+    }
+
+    private void clearBookCash() {
+        unsentBookList = new ArrayList<>();
+        bookListSent.set(false);
+        this.clearChapterCash();
+    }
+
+    private void clearChapterCash() {
+        unsentChapterList = new ArrayList<>();
+        chapterListSent.set(false);
+        this.clearChapterInfoCash();
     }
 
     @Override
     public void getBookChapters(String bookUid, AsyncMethodCallback<Callback> resultHandler) {
         logger.info("Called getBookChapters(" + bookUid + ")");
         DatabaseReference currentBookChaptersRef = ref.child(bookUid).child("chapters");
+        this.clearChapterCash();
         currentBookChaptersRef.removeEventListener(updateChapterListListener);
         updateChapterListListener = new UpdateChapterListListener(resultHandler);
         currentBookChaptersRef.addChildEventListener(updateChapterListListener);
+    }
+
+    private void clearChapterInfoCash() {
+        unsentChapterInfoList = new ArrayList<>();
+        chapterInfoListSent.set(false);
     }
 
     @Override
@@ -89,6 +132,7 @@ public class StorageServiceHandler implements Storage.AsyncIface{
         DatabaseReference chaptersRef =  ref.child(bookUid)
                 .child("chapters")
                 .child(chapterUid);
+        this.clearChapterInfoCash();
         chaptersRef.removeEventListener(updateChapterListener);
         updateChapterListener = new UpdateChapterListener(resultHandler);
         chaptersRef.addChildEventListener(updateChapterListener);
@@ -132,6 +176,35 @@ public class StorageServiceHandler implements Storage.AsyncIface{
                 .setValueAsync(chapterName);
     }
 
+    @Override
+    public void subscribeForBookList(AsyncMethodCallback<List<Callback>> resultHandler) {
+        this.notifySubscriber(bookListLock, bookListSent, unsentBookList, resultHandler);
+    }
+
+    @Override
+    public void subscribeForBookChapters(String bookUid, AsyncMethodCallback<List<Callback>> resultHandler) throws TException {
+        this.notifySubscriber(chapterListLock, chapterListSent, unsentChapterList, resultHandler);
+    }
+
+    @Override
+    public void subscribeForChapter(String bookUid, String chapterUid, AsyncMethodCallback<List<Callback>> resultHandler) throws TException {
+        this.notifySubscriber(chapterInfoListLock, chapterInfoListSent, unsentChapterInfoList, resultHandler);
+    }
+
+    private void notifySubscriber(Object lock,
+                                  AtomicBoolean arraySent,
+                                  ArrayList<Callback> array,
+                                  AsyncMethodCallback<List<Callback>> resultHandler) {
+        synchronized (lock) {
+            if (arraySent.get() && !array.isEmpty()) {
+                resultHandler.onComplete(array);
+                arraySent.set(true);
+            } else  {
+                //resultHandler.onComplete(null);
+            }
+        }
+    }
+
 
     private class UpdateBookListListener implements ChildEventListener {
 
@@ -147,7 +220,12 @@ public class StorageServiceHandler implements Storage.AsyncIface{
             String key = dataSnapshot.getKey();
             CustomPair entry = new CustomPair(key, name);
             logger.info("Added book: " + name);
-            callback.onComplete(new Callback(entry, "books", CallbackType.ADDED));
+            send(bookListLock,
+                    bookListSent,
+                    new Callback(entry, "books", CallbackType.ADDED, null),
+                    ValidUpdate.BOOK_NAME,
+                    unsentBookList,
+                    callback);
         }
 
         @Override
@@ -156,7 +234,12 @@ public class StorageServiceHandler implements Storage.AsyncIface{
             String key = dataSnapshot.getKey();
             logger.info("Changed book name: " + name + ", key: " + key);
             CustomPair entry = new CustomPair(key, name);
-            callback.onComplete(new Callback(entry, "books", CallbackType.CHANGED));
+            send(bookListLock,
+                    bookListSent,
+                    new Callback(entry, "books", CallbackType.CHANGED, null),
+                    ValidUpdate.BOOK_NAME,
+                    unsentBookList,
+                    callback);
         }
 
         @Override
@@ -165,7 +248,12 @@ public class StorageServiceHandler implements Storage.AsyncIface{
             String key = dataSnapshot.getKey();
             logger.info("Removed book name: " + name + ", key: " + key);
             CustomPair entry = new CustomPair(key, name);
-            callback.onComplete(new Callback(entry, "books", CallbackType.REMOVED));
+            send(bookListLock,
+                    bookListSent,
+                    new Callback(entry, "books", CallbackType.REMOVED, null),
+                    ValidUpdate.BOOK_NAME,
+                    unsentBookList,
+                    callback);
         }
 
         @Override
@@ -176,6 +264,24 @@ public class StorageServiceHandler implements Storage.AsyncIface{
         @Override
         public void onCancelled(DatabaseError databaseError) {
             callback.onError(databaseError.toException());
+        }
+
+    }
+
+    private void send(Object lock,
+                      AtomicBoolean arraySent,
+                      Callback callbackInfo,
+                      ValidUpdate update,
+                      ArrayList<Callback> unsent,
+                      AsyncMethodCallback<Callback> callback) {
+        synchronized (lock) {
+            if (!arraySent.get()) {
+                callback.onComplete(callbackInfo);
+                arraySent.set(true);
+            } else  {
+                callbackInfo.update = update;
+                unsent.add(callbackInfo);
+            }
         }
     }
 
@@ -194,7 +300,12 @@ public class StorageServiceHandler implements Storage.AsyncIface{
             String name = chapter.getName();
             logger.info("Added chapter: " + name);
             CustomPair entry = new CustomPair(key, name);
-            callback.onComplete(new Callback(entry, "chapters", CallbackType.ADDED));
+            send(chapterListLock,
+                    chapterListSent,
+                    new Callback(entry, "chapters", CallbackType.ADDED, null),
+                    ValidUpdate.CHAPTER_NAME,
+                    unsentChapterList,
+                    callback);
         }
 
         @Override
@@ -203,7 +314,12 @@ public class StorageServiceHandler implements Storage.AsyncIface{
             String key = dataSnapshot.getKey();
             logger.info("Changed chapter name: " + name + ", key: " + key);
             CustomPair entry = new CustomPair(key, name);
-            callback.onComplete(new Callback(entry, "chapters", CallbackType.CHANGED));
+            send(chapterListLock,
+                    chapterListSent,
+                    new Callback(entry, "chapters", CallbackType.CHANGED, null),
+                    ValidUpdate.CHAPTER_NAME,
+                    unsentChapterList,
+                    callback);
         }
 
         @Override
@@ -212,7 +328,12 @@ public class StorageServiceHandler implements Storage.AsyncIface{
             String key = dataSnapshot.getKey();
             logger.info("Removed chapter name: " + name + ", key: " + key);
             CustomPair entry = new CustomPair(key, name);
-            callback.onComplete(new Callback(entry, "chapters", CallbackType.REMOVED));
+            send(chapterListLock,
+                    chapterListSent,
+                    new Callback(entry, "chapters", CallbackType.REMOVED, null),
+                    ValidUpdate.CHAPTER_NAME,
+                    unsentChapterList,
+                    callback);
         }
 
         @Override
@@ -239,7 +360,13 @@ public class StorageServiceHandler implements Storage.AsyncIface{
             String value = (String) dataSnapshot.getValue();
             String event = dataSnapshot.getKey();
             CustomPair entry = new CustomPair(event, value);
-            callback.onComplete(new Callback(entry, event, CallbackType.ADDED));
+            logger.info("Added chapter event: " + event + ", value: " + value);
+            send(chapterInfoListLock,
+                    chapterInfoListSent,
+                    new Callback(entry, event, CallbackType.ADDED, null),
+                    ValidUpdate.CHAPTER_INFO,
+                    unsentChapterInfoList,
+                    callback);
         }
 
         @Override
@@ -247,7 +374,13 @@ public class StorageServiceHandler implements Storage.AsyncIface{
             String value = (String) dataSnapshot.getValue();
             String event = dataSnapshot.getKey();
             CustomPair entry = new CustomPair(event, value);
-            callback.onComplete(new Callback(entry, event, CallbackType.CHANGED));
+            logger.info("Changed chapter event: " + event + ", value: " + value);
+            send(chapterInfoListLock,
+                    chapterInfoListSent,
+                    new Callback(entry, event, CallbackType.CHANGED, null),
+                    ValidUpdate.CHAPTER_INFO,
+                    unsentChapterInfoList,
+                    callback);
         }
 
         @Override
@@ -255,7 +388,13 @@ public class StorageServiceHandler implements Storage.AsyncIface{
             String value = (String) dataSnapshot.getValue();
             String event = dataSnapshot.getKey();
             CustomPair entry = new CustomPair(event, value);
-            callback.onComplete(new Callback(entry, event, CallbackType.REMOVED));
+            logger.info("Removed chapter event: " + event + ", value: " + value);
+            send(chapterInfoListLock,
+                    chapterInfoListSent,
+                    new Callback(entry, event, CallbackType.REMOVED, null),
+                    ValidUpdate.CHAPTER_INFO,
+                    unsentChapterInfoList,
+                    callback);
         }
 
         @Override
