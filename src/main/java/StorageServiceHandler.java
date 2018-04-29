@@ -114,6 +114,7 @@ public class StorageServiceHandler implements Storage.AsyncIface{
         ref.child(key)
                 .child("name")
                 .setValueAsync(newName);
+        resultHandler.onComplete(null);
     }
 
     @Override
@@ -125,6 +126,7 @@ public class StorageServiceHandler implements Storage.AsyncIface{
                 .child(key)
                 .child("name")
                 .setValueAsync(newName);
+        resultHandler.onComplete(null);
     }
 
     @Override
@@ -140,16 +142,19 @@ public class StorageServiceHandler implements Storage.AsyncIface{
 
     @Override
     public void updateChapter(String bookUid, String chapterUid, Chapter chapter, AsyncMethodCallback<Void> resultHandler) {
+        Chapter correctChapter = new Chapter(chapter.name, chapter.description, chapter.text);
         ref.child(bookUid)
                 .child("chapters")
                 .child(chapterUid)
-                .setValueAsync(chapter);
+                .setValueAsync(correctChapter);
+        resultHandler.onComplete(null);
     }
 
     @Override
     public void removeBook(String bookUid, AsyncMethodCallback<Void> resultHandler) {
         ref.child(bookUid)
                 .removeValueAsync();
+        resultHandler.onComplete(null);
     }
 
     @Override
@@ -158,6 +163,7 @@ public class StorageServiceHandler implements Storage.AsyncIface{
                 .child("chapters")
                 .child(chapterUid)
                 .removeValueAsync();
+        resultHandler.onComplete(null);
     }
 
     @Override
@@ -165,6 +171,7 @@ public class StorageServiceHandler implements Storage.AsyncIface{
         ref.push()
                 .child("name")
                 .setValueAsync(bookName);
+        resultHandler.onComplete(null);
     }
 
     @Override
@@ -174,6 +181,7 @@ public class StorageServiceHandler implements Storage.AsyncIface{
                 .push()
                 .child("name")
                 .setValueAsync(chapterName);
+        resultHandler.onComplete(null);
     }
 
     @Override
@@ -182,12 +190,12 @@ public class StorageServiceHandler implements Storage.AsyncIface{
     }
 
     @Override
-    public void subscribeForBookChapters(String bookUid, AsyncMethodCallback<List<Callback>> resultHandler) throws TException {
+    public void subscribeForBookChapters(String bookUid, AsyncMethodCallback<List<Callback>> resultHandler) {
         this.notifySubscriber(chapterListLock, chapterListSent, unsentChapterList, resultHandler);
     }
 
     @Override
-    public void subscribeForChapter(String bookUid, String chapterUid, AsyncMethodCallback<List<Callback>> resultHandler) throws TException {
+    public void subscribeForChapter(String bookUid, String chapterUid, AsyncMethodCallback<List<Callback>> resultHandler) {
         this.notifySubscriber(chapterInfoListLock, chapterInfoListSent, unsentChapterInfoList, resultHandler);
     }
 
@@ -200,7 +208,7 @@ public class StorageServiceHandler implements Storage.AsyncIface{
                 resultHandler.onComplete(array);
                 arraySent.set(true);
             } else  {
-                //resultHandler.onComplete(null);
+                resultHandler.onComplete(new ArrayList<Callback>());
             }
         }
     }
@@ -232,7 +240,6 @@ public class StorageServiceHandler implements Storage.AsyncIface{
         public void onChildChanged(DataSnapshot dataSnapshot, String s) {
             String name = (String) dataSnapshot.child("name").getValue();
             String key = dataSnapshot.getKey();
-            logger.info("Changed book name: " + name + ", key: " + key);
             CustomPair entry = new CustomPair(key, name);
             send(bookListLock,
                     bookListSent,
